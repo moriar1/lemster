@@ -5,26 +5,32 @@
 
 class QLineEdit;
 class QDialogButtonBox;
-
-struct Config {
-    QString jwt;
-    QString lemmyInstance;
-};
-Q_DECLARE_METATYPE(Config)
+class QNetworkAccessManager;
+class QSettings;
 
 class LoginDialog : public QDialog {
     Q_OBJECT
-    Q_PROPERTY(Config config READ config WRITE setConfig)
 
 public:
     explicit LoginDialog(QWidget *parent = nullptr);
     ~LoginDialog();
-    Config config() const;
-    void setConfig(const Config &config);
+
+public slots:
+    void receiveNam(QNetworkAccessManager *);
+    void receiveSettings(QSettings *l_settings);
+
+private slots:
+    void onOkButtonClicked();
+
+signals:
+    void LoggedIn();
 
 private:
-    QLineEdit *jwtLine;
+    QSettings *settings;
+    QLineEdit *usernameLine;
+    QLineEdit *passwordLine;
     QLineEdit *lemmyInstanceLine;
+    QNetworkAccessManager *networkAccessManager = nullptr;
 };
 
 #endif

@@ -9,34 +9,28 @@
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
-    , centralWidget(new CentralWidget(this)) {
+    , centralWidget(new CentralWidget(this))
+    , settings(nullptr) {
     setCentralWidget(centralWidget);
 
     QAction *configurationAction = new QAction("Configuration", this);
     connect(configurationAction, &QAction::triggered, this, &MainWindow::onConfigurationClicked);
-    connect(this, &MainWindow::configSignal, centralWidget, &CentralWidget::setConfigSlot);
 
     QMenuBar *menuBar = new QMenuBar(this);
     menuBar->addAction(configurationAction);
     setMenuBar(menuBar);
+
+    // send NetworkAccessManager and Settings to LoginDialog (TODO: BUG `emit` only when ConfigurationClicked)
+    loginDialog = new LoginDialog;
+    connect(centralWidget, &CentralWidget::sendNam, loginDialog, &LoginDialog::receiveNam);
+    connect(centralWidget, &CentralWidget::sendSettings, loginDialog, &LoginDialog::receiveSettings);
+    emit centralWidget->sendNam(centralWidget->networkAccessManager);
+    emit centralWidget->sendSettings(centralWidget->settings);
 }
 
 void MainWindow::onConfigurationClicked() {
-    LoginDialog dialog;
-    if (dialog.exec() == QDialog::Rejected) {
-        return;
-    }
-    emit configSignal(dialog.config());
-
-    QString cfgPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    if (cfgPath.isEmpty()) {
-        QString err = "Failed determine app data location";
-        QMessageBox::critical(this, "Error", err);
-        qFatal() << err;
-    }
-    QSettings settings(cfgPath + ".ini", QSettings::IniFormat);
-    settings.setValue("jwt", dialog.config().jwt);
-    settings.setValue("lemmyinstance", dialog.config().lemmyInstance);
-    // qDebug() << settings.value("jwt");
+    loginDialog->exec();
+    // loginDialog->deleteLater(); // If uncomment will be segmentation fault ufter second ConfigurationClicked (see TODO above)
 }
+
 MainWindow::~MainWindow() {}

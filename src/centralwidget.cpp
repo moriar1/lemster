@@ -1,6 +1,7 @@
 #include "addpostdialog.h"
 #include "centralwidget.h"
 #include <qguiapplication.h>
+#include <qsettings.h>
 
 #include <QAction>
 #include <QDebug>
@@ -61,11 +62,20 @@ CentralWidget::CentralWidget(QWidget *parent)
     QSqlQuery{}.exec("CREATE TABLE IF NOT EXISTS "
                      "posts(number INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, "
                      "community_id INTEGER, body TEXT, url TEXT);");
+    // Read Settings
+    QString cfgPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    if (cfgPath.isEmpty()) {
+        QString err = "Failed determine app data location";
+        QMessageBox::critical(this, "Error", err);
+        qFatal() << err;
+    }
+    settings = new QSettings(cfgPath + ".ini", QSettings::IniFormat, this);
+
     // --- GUI config ---
     // Model
     model = new QSqlTableModel(this);
     model->setTable("posts");
-    model->setEditStrategy(QSqlTableModel::OnFieldChange); // TODO: undo action
+    model->setEditStrategy(QSqlTableModel::OnManualSubmit); // TODO: undo action
     model->select();
 
     // Model View
@@ -130,27 +140,20 @@ void CentralWidget::postClicked() {
     // Get data from table
     QSqlRecord rec = model->record(0);
     QString url = rec.value("url").toString();
-    QString body = rec.value("body").toString();
-    QString name = rec.value("name").toString();
-    int communityId = rec.value("community_id").toInt();
-    // TODO: check if id = 0 || url.isEmpty...
 
-    // Read Settings
-    QString cfgPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    if (cfgPath.isEmpty()) {
-        QString err = "Failed determine app data location";
-        QMessageBox::critical(this, "Error", err);
-        qFatal() << err;
+    if (url.isEmpty()) {
+        qDebug() << "Warning: no url";
     }
-    QSettings settings(cfgPath + ".ini", QSettings::IniFormat);
-    QString jwt = "Bearer " + settings.value("jwt").toString();
+
+    // Check settings existing
+    QString jwt = "Bearer " + settings->value("jwt").toString();
     if (jwt == "Beared ") {
         QMessageBox::critical(
             this, "Error", "JWT is empty. Use configuration menu to specify login credentials."
         );
         return;
     }
-    QString lemmyInstance = settings.value("lemmyinstance").toString();
+    QString lemmyInstance = settings->value("lemmyinstance").toString();
     if (lemmyInstance.isEmpty()) {
         QMessageBox::critical(
             this, "Error", "Lemmy instance is empty. Use configuration menu to specify it."
@@ -159,38 +162,42 @@ void CentralWidget::postClicked() {
     }
     QString baseUrl = "https://" + lemmyInstance;
 
+    connect(this, &CentralWidget::readyToPost, this, &CentralWidget::createPost);
     // Upload image on Lemmy if `url` is local path
-    QString imageUrl = url; // `url` binding
-    if (!url.startsWith("https://")) {
-        imageUrl = UploadImage(url, jwt, baseUrl);
-        if (imageUrl.isEmpty() || imageUrl == baseUrl + "/pictrs/image/") {
-            // qDebug() << "Failed uploading image." << imageUrl;
-            QMessageBox::critical(
-                this, "Error", "Failed to upload `" + imageUrl + "` image on lemmy."
-            );
-            return;
-        }
+    if (!url.startsWith("https://") && !url.isEmpty()) {
+        qDebug() << "Uploading image" << url << "on " << lemmyInstance;
+        UploadImage(url, jwt, baseUrl);
+    } else {
+        emit readyToPost(url);
     }
+}
+
+// Create new post on Lemmy instance
+void CentralWidget::createPost(QString url) {
+    QSqlRecord rec = model->record(0);
+    QString body = rec.value("body").toString();
+    QString name = rec.value("name").toString();
+    int communityId = rec.value("community_id").toInt();
+    QString lemmyInstance = settings->value("lemmyinstance").toString();
+    QString baseUrl = "https://" + lemmyInstance;
+    QString jwt = "Bearer " + settings->value("jwt").toString();
 
     // Create post on Lemmy
     QNetworkRequest request(QUrl(baseUrl + "/api/v3/post"));
     request.setRawHeader("accept", "application/json");
     request.setRawHeader("authorization", jwt.toUtf8());
     request.setRawHeader("content-type", "application/json");
-    QJsonObject
-        json{{"name", name}, {"community_id", communityId}, {"url", imageUrl}, {"body", body}};
+    QJsonObject json{{"name", name}, {"community_id", communityId}, {"url", url}, {"body", body}};
     qDebug() << "Posting.\nCommunity ID:" << communityId << "\nPost name:" << name
-             << "\nURL:" << imageUrl << "\nBody:" << body;
+             << "\nURL:" << url << "\nBody:" << body;
 
     QNetworkReply *reply = networkAccessManager->post(request, QJsonDocument(json).toJson());
 
     connect(reply, &QNetworkReply::finished, this, [reply]() {
         QMessageBox messageBox;
         if (reply->error() != QNetworkReply::NoError) {
-            // qDebug() << reply->errorString(); // TODO: add information window
             messageBox.setText("Error. " + reply->errorString());
         } else {
-            // qDebug() << reply->readAll();
             messageBox.setText("Post created. Server reply: " + reply->readAll());
         }
         messageBox.exec();
@@ -206,7 +213,7 @@ void CentralWidget::showContextMenu(const QPoint &pos) {
     contextMenu.exec(mapToGlobal(pos)); //exec(QCursor::pos()); exec(e->globalPosition().toPoint());
 }
 
-// TODO: add return button
+// TODO: add deleted/posted section, handle errors
 void CentralWidget::removeDataPoint() {
     int index = tableView->selectionModel()->currentIndex().row();
     model->database().transaction();
@@ -217,11 +224,12 @@ void CentralWidget::removeDataPoint() {
         }
     }
 }
-void CentralWidget::setConfigSlot(Config l_config) {
-    config = l_config;
+
+QSettings *CentralWidget::getSettingsPtr() {
+    return settings;
 }
 
-QString CentralWidget::UploadImage(QString path, QString jwt, QString baseUrl) {
+void CentralWidget::UploadImage(QString path, QString jwt, QString baseUrl) {
     QHttpMultiPart *multiPart = new QHttpMultiPart(QHttpMultiPart::FormDataType);
     QHttpPart imagePart;
     imagePart.setHeader(QNetworkRequest::ContentTypeHeader, QVariant("image/jpeg"));
@@ -233,8 +241,10 @@ QString CentralWidget::UploadImage(QString path, QString jwt, QString baseUrl) {
     QFile *file = new QFile(path);
     if (!file->open(QIODevice::ReadOnly)) {
         qDebug() << "Failed to open " << path;
-        return QString("");
+        QMessageBox::critical(this, "Error", "Failed to open file `" + path + "`");
+        emit readyToPost("");
     }
+
     imagePart.setBodyDevice(file);
     file->setParent(multiPart);
     multiPart->append(imagePart);
@@ -242,23 +252,34 @@ QString CentralWidget::UploadImage(QString path, QString jwt, QString baseUrl) {
     QNetworkRequest request(QUrl(baseUrl + "/pictrs/image"));
     request.setRawHeader("authorization", jwt.toUtf8());
     QNetworkReply *reply = networkAccessManager->post(request, multiPart);
+
     multiPart->setParent(reply);
 
-    QString imageUrl("");
-
-    connect(reply, &QNetworkReply::finished, this, [&]() {
+    connect(reply, &QNetworkReply::finished, this, [reply, baseUrl, this]() {
         if (reply->error() != QNetworkReply::NoError) {
-            qDebug() << reply->errorString(); // TODO: add window
+            QMessageBox::critical(
+                this, "Error", "Failed upload image. Server reply: " + reply->errorString()
+            );
+            qDebug() << "Error." << reply->errorString()
+                     << "Code: " << reply->error(); // TODO: add window
+            reply->deleteLater();
+            emit readyToPost("");
         } else {
-            qDebug() << QString::fromUtf8(reply->readAll());
+            qDebug() << "Image Uploaded";
             QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
             QJsonObject json = doc.object();
-            QString relativePath = json["files"][0]["file"].toString();
-            QString url = baseUrl + "pictrs/image/" + relativePath;
-            qDebug() << url;
-            imageUrl = url;
+            QString relativePath = json["files"][0]["file"].toString(); // TODO: check if empty
+            if (relativePath.isEmpty() || !relativePath.endsWith("webp")) {
+                qDebug() << "Error. Resieved wrong path to image: " << relativePath;
+                QMessageBox::critical(
+                    this, "Error", "Resieved wrong path to image: `" + relativePath + "`"
+                );
+            }
+
+            QString url = baseUrl + "/pictrs/image/" + relativePath;
+            qDebug() << "Uploaded Image URL: " << url;
+            reply->deleteLater();
+            emit readyToPost(url);
         }
-        reply->deleteLater();
     });
-    return imageUrl;
 }

@@ -9,6 +9,7 @@
 
 class QSqlTableModel;
 class QNetworkAccessManager;
+class QSettings;
 
 class CentralWidget : public QWidget {
     Q_OBJECT
@@ -16,24 +17,31 @@ class CentralWidget : public QWidget {
 public:
     explicit CentralWidget(QWidget *parent = nullptr);
     ~CentralWidget();
+    QSettings *getSettingsPtr();
+
+signals:
+    void sendNam(QNetworkAccessManager *);
+    void sendSettings(QSettings *);
+    void readyToPost(QString);
+
 private slots:
     void addPostClicked();
     void showContextMenu(const QPoint &);
     void postClicked();
     void removeDataPoint();
-
-public slots:
-    void setConfigSlot(Config);
+    void createPost(QString); // Create new post on Lemmy instance
 
 private:
-    QNetworkAccessManager *networkAccessManager;
     QSqlTableModel *model;
     QTableView *tableView;
     QPushButton *addPostButton;
     QPushButton *postButton;
-    Config config;
 
-    QString UploadImage(QString, QString, QString);
+    void UploadImage(QString, QString, QString);
+
+public:
+    QSettings *settings; // for reading/saving jwt, lemmy instance and completer in file
+    QNetworkAccessManager *networkAccessManager;
 };
 
 #endif

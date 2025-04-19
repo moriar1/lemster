@@ -2,22 +2,28 @@
 
 Desktop application for posting to [Lemmy](https://github.com/LemmyNet/lemmy) instances.
 
+![](misc/gui.jpg)
+
 ## Features
 - Simple scheduler
 - GUI
 
-![](misc/gui.jpg)
-
 # Usage
 
-Click on `configuration` button on menu bar. Put appropriate info. Click `add post`. After clicking `OK` new post will be added in the table. `Post` button will create post on lemmy.
+Click on `configuration` button on menu bar. Put your login credentials.
+Click `Add post` to add new post in scheduler.
+`Post` button will create post on lemmy by information in first record.
+
+> [!NOTE]
+> Your JWT stores in application directory in unencrypted plain text file (path to file: see [Uninstall](#Uninstall)).
 
 # Build
 
 ## Linux
 
-*Requirements:*
+**Requirements:**
 
+Install the following packages using your package manager:
 - Qt6-base package
 - CMake
 
@@ -51,24 +57,32 @@ Open QtCreator and build the project.
 
 # Uninstall
 
+## Delete config files:
+
 ### Linux
 
-**Delete config files and binary:**
 
 ```bash
 rm -r $HOME/.local/share/lemster
-xargs rm < install_manifest.txt # only if you used `make install`, run from `lemster/build` directory, may need sudo
 ```
 
 ### Windows
 
-**Delete config files**:
-
-On Windows delete one of the following folder:
+Delete one of the following folder:
 - `C:/Users/<USER>/AppData/Roaming/lemster`
 - `C:/ProgramData/lemster`
-- `<APPDIR>/data/lemster`
+- `lemster/data/lemster`
 
-# TODO:
-- [ ] Replace jwt with login+password credentials
+## Delete binary
+
+If you used `make install` run from `lemster/build`:
+
+```bash
+xargs rm < install_manifest.txt # may need sudo
+```
+
+# TODO
+- [x] Replace jwt with login+password credentials
 - [ ] Replace community ID with community name + Completer.
+- [ ] Solve qFatal() build error on Ubuntu
+- [ ] Windows/Linux deploy

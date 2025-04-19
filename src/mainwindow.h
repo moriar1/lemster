@@ -1,11 +1,11 @@
 #ifndef MAINWINDOW_H
 #define MAINWINDOW_H
 
-#include "logindialog.h"
 #include <QMainWindow>
-// #include "cen
 
 class CentralWidget;
+class QSettings;
+class LoginDialog;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -16,11 +16,10 @@ public:
 private slots:
     void onConfigurationClicked();
 
-signals:
-    void configSignal(Config); //add `&` ?
-
 private:
     CentralWidget *centralWidget;
+    QSettings *settings;
+    LoginDialog *loginDialog;
 };
 
 #endif
